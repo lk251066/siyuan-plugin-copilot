@@ -517,10 +517,15 @@
         return (globalThis as any)?.process?.platform === 'win32';
     }
 
+    function isMacPlatform(): boolean {
+        return (globalThis as any)?.process?.platform === 'darwin';
+    }
+
     let lastLoggedMcpNodeCommand = '';
 
     function resolveMcpNodeCommand(): string {
         if (isWindowsPlatform()) return 'node';
+        if (!isMacPlatform()) return 'node';
         const fs = nodeRequireForSidebar<any>('fs');
         const preferred = ['/opt/homebrew/bin/node', '/usr/local/bin/node'];
         for (const p of preferred) {

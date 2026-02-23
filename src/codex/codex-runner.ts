@@ -41,6 +41,11 @@ function isWindows(): boolean {
     return p === 'win32';
 }
 
+function isMac(): boolean {
+    const p = (globalThis as any)?.process?.platform;
+    return p === 'darwin';
+}
+
 function getPluginRootDir(): string {
     try {
         // In SiYuan plugin runtime (CJS), this usually points to the plugin directory.
@@ -64,12 +69,33 @@ function escapeTomlLiteralString(value: string): string {
 
 function resolveMcpNodeCommand(): string {
     if (isWindows()) return 'node';
+    if (!isMac()) return 'node';
     const fs = nodeRequire<typeof import('fs')>('fs');
     const preferred = ['/opt/homebrew/bin/node', '/usr/local/bin/node'];
     for (const p of preferred) {
         if (fs.existsSync(p)) return p;
     }
     return 'node';
+}
+
+function resolveCodexCliCommand(cliPathRaw: string | undefined): string {
+    const configured = String(cliPathRaw || '').trim();
+    if (configured) return configured;
+    if (isWindows()) return 'codex';
+    if (!isMac()) return 'codex';
+    const fs = nodeRequire<typeof import('fs')>('fs');
+    const preferred = [
+        '/opt/homebrew/bin/codex',
+        '/usr/local/bin/codex',
+        '/Applications/Codex.app/Contents/Resources/codex',
+        '/Applications/codex.app/Contents/Resources/codex',
+        '/Applications/Codex.app/Contents/MacOS/codex',
+        '/Applications/codex.app/Contents/MacOS/codex',
+    ];
+    for (const p of preferred) {
+        if (fs.existsSync(p)) return p;
+    }
+    return 'codex';
 }
 
 function buildMcpOverrides(siyuanMcpScriptPath: string, nodeCmd: string): string[] {
@@ -117,7 +143,7 @@ function buildReasoningEffortOverrides(effortRaw: unknown): string[] {
 export function runCodexExec(options: RunCodexExecOptions): RunCodexExecHandle {
     const childProcess = nodeRequire<typeof import('child_process')>('child_process');
 
-    const cliPath = (options.cliPath || '').trim() || 'codex';
+    const cliPath = resolveCodexCliCommand(options.cliPath);
     const skipGitRepoCheck = options.skipGitRepoCheck !== false;
     const runModeArgs = buildRunModeArgs(options.runMode);
     const reasoningOverrides = buildReasoningEffortOverrides(options.reasoningEffort);
