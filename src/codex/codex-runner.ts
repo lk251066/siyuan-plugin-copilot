@@ -62,13 +62,23 @@ function escapeTomlLiteralString(value: string): string {
     return value.replace(/'/g, "''");
 }
 
-function buildMcpOverrides(siyuanMcpScriptPath: string): string[] {
+function resolveMcpNodeCommand(): string {
+    if (isWindows()) return 'node';
+    const fs = nodeRequire<typeof import('fs')>('fs');
+    const preferred = ['/opt/homebrew/bin/node', '/usr/local/bin/node'];
+    for (const p of preferred) {
+        if (fs.existsSync(p)) return p;
+    }
+    return 'node';
+}
+
+function buildMcpOverrides(siyuanMcpScriptPath: string, nodeCmd: string): string[] {
     const scriptLiteral = escapeTomlLiteralString(siyuanMcpScriptPath);
-    const nodeCmd = isWindows() ? 'node.exe' : 'node';
+    const nodeLiteral = escapeTomlLiteralString(nodeCmd);
     return [
         // Transport
         'mcp_servers.siyuan.type=stdio',
-        `mcp_servers.siyuan.command=${nodeCmd}`,
+        `mcp_servers.siyuan.command='${nodeLiteral}'`,
         // args is TOML array of literal strings to avoid backslash escaping
         `mcp_servers.siyuan.args=['${scriptLiteral}']`,
         // pass sensitive values via env var names (value stays in env, not CLI args)
@@ -114,7 +124,9 @@ export function runCodexExec(options: RunCodexExecOptions): RunCodexExecHandle {
 
     const siyuanMcpScriptPath =
         (options.mcpScriptPath || '').trim() || getDefaultSiyuanMcpScriptPath();
-    const overrides = buildMcpOverrides(siyuanMcpScriptPath);
+    const mcpNodeCmd = resolveMcpNodeCommand();
+    console.info(`[Codex MCP] Using node command: ${mcpNodeCmd}`);
+    const overrides = buildMcpOverrides(siyuanMcpScriptPath, mcpNodeCmd);
 
     const args: string[] = ['exec', '--json'];
     if (skipGitRepoCheck) args.push('--skip-git-repo-check');
