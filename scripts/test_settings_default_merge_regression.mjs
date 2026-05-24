@@ -105,6 +105,14 @@ const checks = [
             sidebarSource.includes('settings = mergeSettingsWithDefaults(await plugin.loadSettings());'),
     },
     {
+        name: 'prompt templates persist outside global settings to avoid stale overwrite',
+        pass:
+            sidebarSource.includes("const PROMPT_TEMPLATES_FILE = 'prompt-templates.json';") &&
+            sidebarSource.includes('await plugin.loadData(PROMPT_TEMPLATES_FILE)') &&
+            sidebarSource.includes('await plugin.saveData(PROMPT_TEMPLATES_FILE, { prompts: promptTemplates });') &&
+            !sidebarSource.includes('settings = { ...settings, prompts: promptTemplates };'),
+    },
+    {
         name: 'send flow self-heals codexEnabled before send instead of hard-failing',
         pass:
             sidebarSource.includes('settings = mergeSettingsWithDefaults({ ...settings, codexEnabled: true });') &&
