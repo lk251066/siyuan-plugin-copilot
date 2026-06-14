@@ -83,7 +83,12 @@ interface WebViewHistory {
 
 
 export default class PluginSample extends Plugin {
-    private aiSidebarApp: AISidebar;
+    private aiSidebarApp: AISidebar | null = null;
+    private aiSidebarDockElement: HTMLElement | null = null;
+    private aiSidebarDockWatchTimer: ReturnType<typeof window.setInterval> | null = null;
+    private aiTabApp: AISidebar | null = null;
+    private aiTabElement: HTMLElement | null = null;
+    private aiTabWatchTimer: ReturnType<typeof window.setInterval> | null = null;
     private chatDialogs: Map<string, { dialog: Dialog; app: ChatDialog }> = new Map();
     private webApps: Map<string, any> = new Map(); // 存储待打开的小程序数据
     private webViewHistory: WebViewHistory[] = []; // WebView 历史记录
@@ -537,6 +542,118 @@ export default class PluginSample extends Plugin {
         });
     }
 
+    private hasAISidebarRoot(target: HTMLElement | null): boolean {
+        return !!target?.querySelector(".ai-sidebar");
+    }
+
+    private destroyAISidebarDockApp() {
+        if (!this.aiSidebarApp) return;
+        try {
+            this.aiSidebarApp.$destroy();
+        } catch (error) {
+            console.warn("Destroy AI sidebar failed:", error);
+        } finally {
+            this.aiSidebarApp = null;
+        }
+    }
+
+    private mountAISidebarDock(target: HTMLElement | null | undefined) {
+        if (!target) return;
+        this.aiSidebarDockElement = target;
+        target.style.display = "flex";
+        target.style.flexDirection = "column";
+        target.style.height = "100%";
+
+        if (this.aiSidebarApp && this.hasAISidebarRoot(target)) {
+            return;
+        }
+
+        if (this.aiSidebarApp && !this.hasAISidebarRoot(target)) {
+            this.destroyAISidebarDockApp();
+        }
+
+        if (this.hasAISidebarRoot(target)) {
+            return;
+        }
+
+        target.innerHTML = "";
+        this.aiSidebarApp = new AISidebar({
+            target,
+            props: {
+                plugin: this,
+                addChatContextEvent: this.getAddChatContextEventName(),
+            }
+        });
+    }
+
+    private startAISidebarDockWatchdog() {
+        if (this.aiSidebarDockWatchTimer) return;
+        this.aiSidebarDockWatchTimer = window.setInterval(() => {
+            const target = this.aiSidebarDockElement;
+            if (!target || !target.isConnected) return;
+            if (!this.hasAISidebarRoot(target)) {
+                console.warn("AI sidebar dock root disappeared; remounting.");
+                this.mountAISidebarDock(target);
+            }
+        }, 2000);
+    }
+
+    private stopAISidebarDockWatchdog() {
+        if (!this.aiSidebarDockWatchTimer) return;
+        window.clearInterval(this.aiSidebarDockWatchTimer);
+        this.aiSidebarDockWatchTimer = null;
+    }
+
+    private destroyAITabApp() {
+        if (!this.aiTabApp) return;
+        try {
+            this.aiTabApp.$destroy();
+        } catch (error) {
+            console.warn("Destroy AI tab failed:", error);
+        } finally {
+            this.aiTabApp = null;
+        }
+    }
+
+    private mountAITab(target: HTMLElement | null | undefined) {
+        if (!target) return;
+        this.aiTabElement = target;
+        target.style.display = "flex";
+        target.style.flexDirection = "column";
+        target.style.height = "100%";
+
+        if (this.aiTabApp && this.hasAISidebarRoot(target)) return;
+        if (this.aiTabApp && !this.hasAISidebarRoot(target)) this.destroyAITabApp();
+        if (this.hasAISidebarRoot(target)) return;
+
+        target.innerHTML = "";
+        this.aiTabApp = new AISidebar({
+            target,
+            props: {
+                plugin: this,
+                addChatContextEvent: this.getAddChatContextEventName(),
+            },
+        });
+    }
+
+    private startAITabWatchdog() {
+        if (this.aiTabWatchTimer) return;
+        this.aiTabWatchTimer = window.setInterval(() => {
+            const target = this.aiTabElement;
+            if (!target || !target.isConnected) return;
+            if (!this.hasAISidebarRoot(target)) {
+                console.warn("AI tab root disappeared; remounting.");
+                this.mountAITab(target);
+            }
+        }, 2000);
+    }
+
+    private stopAITabWatchdog() {
+        if (!this.aiTabWatchTimer) return;
+        window.clearInterval(this.aiTabWatchTimer);
+        this.aiTabWatchTimer = null;
+    }
+
     private registerAddChatContextMenuHandlers() {
         const candidates = [
             (this as any).eventBus,
@@ -969,20 +1086,13 @@ export default class PluginSample extends Plugin {
             type: AI_TAB_TYPE,
             init() {
                 const element = this.element as HTMLElement;
-                element.style.display = 'flex';
-                element.style.flexDirection = 'column';
-                element.style.height = '100%';
-                // 创建AI聊天界面
-                new AISidebar({
-                    target: element,
-                    props: {
-                        plugin: pluginInstance,
-                        addChatContextEvent: pluginInstance.getAddChatContextEventName(),
-                    }
-                });
+                pluginInstance.mountAITab(element);
+                pluginInstance.startAITabWatchdog();
             },
             destroy() {
-                // Svelte组件会自动清理
+                pluginInstance.stopAITabWatchdog();
+                pluginInstance.destroyAITabApp();
+                pluginInstance.aiTabElement = null;
             }
         });
         // 注册小程序标签页类型
@@ -2115,18 +2225,12 @@ export default class PluginSample extends Plugin {
             },
             type: AI_SIDEBAR_TYPE,
             init: (dock) => {
-                this.aiSidebarApp = new AISidebar({
-                    target: dock.element,
-                    props: {
-                        plugin: this,
-                        addChatContextEvent: this.getAddChatContextEventName(),
-                    }
-                });
+                this.mountAISidebarDock(dock.element as HTMLElement);
+                this.startAISidebarDockWatchdog();
             },
             destroy: () => {
-                if (this.aiSidebarApp) {
-                    this.aiSidebarApp.$destroy();
-                }
+                // SiYuan may call dock destroy while temporarily hiding/recycling the dock.
+                // Keep the component alive and let the watchdog remount if the DOM is cleared.
             }
         });
         // 注册已保存的小程序图标
@@ -2380,6 +2484,10 @@ export default class PluginSample extends Plugin {
 
     async onunload() {
         //当插件被禁用的时候，会自动调用这个函数
+        this.stopAISidebarDockWatchdog();
+        this.destroyAISidebarDockApp();
+        this.stopAITabWatchdog();
+        this.destroyAITabApp();
         this.unregisterAddChatContextMenuHandlers();
         this.teardownDomMenuFallback();
         this.teardownLinkClickListener();
